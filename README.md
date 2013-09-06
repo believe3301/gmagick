@@ -1,0 +1,4 @@
+gmagick
+=======
+
+graphickmagick ffi binding
