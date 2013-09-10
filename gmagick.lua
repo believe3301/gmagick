@@ -1,5 +1,9 @@
+local util = require("util")
 local ffi = require("ffi")
 ffi.cdef([[  typedef void MagickWand;
+
+    typedef void DrawingWand;
+    typedef void PixelWand;
 
     typedef int MagickBooleanType;
     typedef int ExceptionType;
@@ -14,6 +18,12 @@ ffi.cdef([[  typedef void MagickWand;
     void* MagickRelinquishMemory(void*);
     const char* MagickGetException(const MagickWand*, ExceptionType*);
 
+    //append
+    MagickBooleanType MagickAddImage(MagickWand *wand, const MagickWand *add_wand);
+    MagickWand *MagickAppendImages(MagickWand *wand, const unsigned int stack);
+    void MagickResetIterator(MagickWand *wand);
+    MagickBooleanType MagickNextImage(MagickWand *wand);
+
     //read
     MagickBooleanType MagickReadImage(MagickWand*, const char*);
     MagickBooleanType MagickReadImageBlob(MagickWand*, const void*, const size_t);
@@ -21,19 +31,17 @@ ffi.cdef([[  typedef void MagickWand;
     int MagickGetImageWidth(MagickWand*);
     int MagickGetImageHeight(MagickWand*);
   
-    MagickBooleanType MagickAddImage(MagickWand*, const MagickWand*);
-  
     MagickBooleanType MagickAdaptiveResizeImage(MagickWand*, const size_t, const size_t);
   
     //write
     MagickBooleanType MagickWriteImage(MagickWand*, const char*);
     unsigned char* MagickWriteImageBlob(MagickWand*, size_t*);
   
-    //Crop
+    //crop
     MagickBooleanType MagickCropImage(MagickWand*,
       const size_t, const size_t, const ssize_t, const ssize_t);
 
-    //Blur
+    //blur
     MagickBooleanType MagickBlurImage(MagickWand*, const double, const double);
   
     //format
@@ -54,10 +62,62 @@ ffi.cdef([[  typedef void MagickWand;
       const MagickWand *source_wand,const CompositeOperator compose,
       const ssize_t x,const ssize_t y);
 
+    //query font
+    double *MagickQueryFontMetrics(MagickWand *wand, const DrawingWand *drawing_wand,
+      const char *text);
+
     //geometry
     int GetMagickGeometry(const char *geometry,long *x,long *y,unsigned long *width, unsigned long *height);
     int GetGeometry(const char *geometry,long *x,long *y,unsigned long *width, unsigned long *height);
-    
+
+    //draw
+    DrawingWand *MagickNewDrawingWand( void );
+    void MagickDestroyDrawingWand( DrawingWand *drawing_wand );
+
+    //draw fill color
+    void MagickDrawSetFillColor(DrawingWand *drawing_wand, const PixelWand *fill_wand);
+    void MagickDrawGetFillColor(const DrawingWand *drawing_wand, PixelWand *fill_color);
+
+    //draw font
+    char *MagickDrawGetFont(const DrawingWand *drawing_wand);
+    void MagickDrawSetFont(DrawingWand *drawing_wand, const char *font_name);
+
+    //draw font family
+    char *MagickDrawGetFontFamily( const DrawingWand *drawing_wand );
+    void MagickDrawSetFontFamily( DrawingWand *drawing_wand, const char *font_family );
+
+    //draw font size
+    double MagickDrawGetFontSize(const DrawingWand *drawing_wand);
+    void MagickDrawSetFontSize( DrawingWand *drawing_wand, const double pointsize );
+
+    //draw gravity
+    GravityType MagickDrawGetGravity(const DrawingWand *drawing_wand);
+    void MagickDrawSetGravity(DrawingWand *drawing_wand, const GravityType gravity);
+
+    //draw antialias
+    unsigned int MagickDrawGetTextAntialias(const DrawingWand *drawing_wand);
+    void MagickDrawSetTextAntialias(DrawingWand *drawing_wand, const unsigned int text_antialias);
+    unsigned int MagickDrawGetStrokeAntialias(const DrawingWand *drawing_wand);
+    void MagickDrawSetStrokeAntialias(DrawingWand *drawing_wand, const unsigned int text_antialias);
+
+    //draw text
+    void MagickDrawAnnotation(DrawingWand *drawing_wand, const double x, const double y,
+      const unsigned char *text);
+
+    //draw image
+    MagickBooleanType MagickDrawImage(MagickWand *wand, const DrawingWand *drawing_wand);
+
+    //montage
+    typedef enum
+    {
+        UndefinedMode,
+        FrameMode,
+        UnframeMode,
+        ConcatenateMode
+    } MontageMode;
+
+    MagickWand *MagickMontageImage(MagickWand *wand, const DrawingWand *drawing_wand,
+        const char *tile_geometry, const char *thumbnail_geometry, const MontageMode mode, const char *frame);
   
 ]])
 --get ld config
@@ -181,75 +241,45 @@ if get_filters() then
 end
 
 local composite_op = {
-  ["UndefinedCompositeOp"] = 0,
-  ["NoCompositeOp"] = 1,
-  ["ModulusAddCompositeOp"] = 2,
-  ["AtopCompositeOp"] = 3,
-  ["BlendCompositeOp"] = 4,
-  ["BumpmapCompositeOp"] = 5,
-  ["ChangeMaskCompositeOp"] = 6,
-  ["ClearCompositeOp"] = 7,
-  ["ColorBurnCompositeOp"] = 8,
-  ["ColorDodgeCompositeOp"] = 9,
-  ["ColorizeCompositeOp"] = 10,
-  ["CopyBlackCompositeOp"] = 11,
-  ["CopyBlueCompositeOp"] = 12,
-  ["CopyCompositeOp"] = 13,
-  ["CopyCyanCompositeOp"] = 14,
-  ["CopyGreenCompositeOp"] = 15,
-  ["CopyMagentaCompositeOp"] = 16,
-  ["CopyOpacityCompositeOp"] = 17,
-  ["CopyRedCompositeOp"] = 18,
-  ["CopyYellowCompositeOp"] = 19,
-  ["DarkenCompositeOp"] = 20,
-  ["DstAtopCompositeOp"] = 21,
-  ["DstCompositeOp"] = 22,
-  ["DstInCompositeOp"] = 23,
-  ["DstOutCompositeOp"] = 24,
-  ["DstOverCompositeOp"] = 25,
-  ["DifferenceCompositeOp"] = 26,
-  ["DisplaceCompositeOp"] = 27,
-  ["DissolveCompositeOp"] = 28,
-  ["ExclusionCompositeOp"] = 29,
-  ["HardLightCompositeOp"] = 30,
-  ["HueCompositeOp"] = 31,
-  ["InCompositeOp"] = 32,
-  ["LightenCompositeOp"] = 33,
-  ["LinearLightCompositeOp"] = 34,
-  ["LuminizeCompositeOp"] = 35,
-  ["MinusDstCompositeOp"] = 36,
-  ["ModulateCompositeOp"] = 37,
-  ["MultiplyCompositeOp"] = 38,
-  ["OutCompositeOp"] = 39,
-  ["OverCompositeOp"] = 40,
-  ["OverlayCompositeOp"] = 41,
-  ["PlusCompositeOp"] = 42,
-  ["ReplaceCompositeOp"] = 43,
-  ["SaturateCompositeOp"] = 44,
-  ["ScreenCompositeOp"] = 45,
-  ["SoftLightCompositeOp"] = 46,
-  ["SrcAtopCompositeOp"] = 47,
-  ["SrcCompositeOp"] = 48,
-  ["SrcInCompositeOp"] = 49,
-  ["SrcOutCompositeOp"] = 50,
-  ["SrcOverCompositeOp"] = 51,
-  ["ModulusSubtractCompositeOp"] = 52,
-  ["ThresholdCompositeOp"] = 53,
-  ["XorCompositeOp"] = 54,
-  ["DivideDstCompositeOp"] = 55,
-  ["DistortCompositeOp"] = 56,
-  ["BlurCompositeOp"] = 57,
-  ["PegtopLightCompositeOp"] = 58,
-  ["VividLightCompositeOp"] = 59,
-  ["PinLightCompositeOp"] = 60,
-  ["LinearDodgeCompositeOp"] = 61,
-  ["LinearBurnCompositeOp"] = 62,
-  ["MathematicsCompositeOp"] = 63,
-  ["DivideSrcCompositeOp"] = 64,
-  ["MinusSrcCompositeOp"] = 65,
-  ["DarkenIntensityCompositeOp"] = 66,
-  ["LightenIntensityCompositeOp"] = 67
+  ["UndefinedCompositeOp"] = lib.UndefinedCompositeOp,
+  ["OverCompositeOp"] = lib.OverCompositeOp,
+  ["InCompositeOp"] = lib.InCompositeOp,
+  ["OutCompositeOp"] = lib.OutCompositeOp,
+  ["AtopCompositeOp"] = lib.AtopCompositeOp,
+  ["XorCompositeOp"] = lib.XorCompositeOp,
+  ["PlusCompositeOp"] = lib.PlusCompositeOp,
+  ["MinusCompositeOp"] = lib.MinusCompositeOp,
+  ["AddCompositeOp"] = lib.AddCompositeOp,
+  ["SubtractCompositeOp"] = lib.SubtractCompositeOp,
+  ["DifferenceCompositeOp"] = lib.DifferenceCompositeOp,
+  ["MultiplyCompositeOp"] = lib.MultiplyCompositeOp,
+  ["BumpmapCompositeOp"] = lib.BumpmapCompositeOp,
+  ["CopyCompositeOp"] = lib.CopyCompositeOp,
+  ["CopyRedCompositeOp"] = lib.CopyRedCompositeOp,
+  ["CopyGreenCompositeOp"] = lib.CopyGreenCompositeOp,
+  ["CopyBlueCompositeOp"] = lib.CopyBlueCompositeOp,
+  ["CopyOpacityCompositeOp"] = lib.CopyOpacityCompositeOp,
+  ["ClearCompositeOp"] = lib.ClearCompositeOp,
+  ["DissolveCompositeOp"] = lib.DissolveCompositeOp,
+  ["DisplaceCompositeOp"] = lib.DisplaceCompositeOp,
+  ["ModulateCompositeOp"] = lib.ModulateCompositeOp,
+  ["ThresholdCompositeOp"] = lib.ThresholdCompositeOp,
+  ["NoCompositeOp"] = lib.NoCompositeOp,
+  ["DarkenCompositeOp"] = lib.DarkenCompositeOp,
+  ["LightenCompositeOp"] = lib.LightenCompositeOp,
+  ["HueCompositeOp"] = lib.HueCompositeOp,
+  ["SaturateCompositeOp"] = lib.SaturateCompositeOp,
+  ["ColorizeCompositeOp"] = lib.ColorizeCompositeOp,
+  ["LuminizeCompositeOp"] = lib.LuminizeCompositeOp,
+  ["ScreenCompositeOp"] = lib.ScreenCompositeOp,
+  ["OverlayCompositeOp"] = lib.OverlayCompositeOp,
+  ["CopyCyanCompositeOp"] = lib.CopyCyanCompositeOp,
+  ["CopyMagentaCompositeOp"] = lib.CopyMagentaCompositeOp,
+  ["CopyYellowCompositeOp"] = lib.CopyYellowCompositeOp,
+  ["CopyBlackCompositeOp"] = lib.CopyBlackCompositeOp,
+  ["DivideCompositeOp"] = lib.DivideCompositeOp,
 }
+
 local gravity_str = {
   "ForgetGravity",
   "NorthWestGravity",
@@ -385,159 +415,294 @@ local get_image_position = function(img_w, img_h, geometry, gravity)
   return {w = r_w, h = r_h, x = r_x, y = r_y}
 end
 
+local Draw
+do
+    local _base_0 = {
+        get_font = function(self)
+            return lib.MagickDrawSetFont(self.wand)
+        end,
+
+        set_font = function(self, font)
+            lib.MagickDrawSetFont(self.wand, font)
+        end,
+
+        get_fontfamily = function(self)
+            return lib.MagickDrawGetFontFamily(self.wand)
+        end,
+
+        set_fontfamily = function(self, family)
+            lib.MagickDrawSetFontFamily(self.wand, family)
+        end,
+
+        get_fontsize = function(self)
+            return lib.MagickDrawGetFontSize(self.wand)
+        end,
+
+        set_fontsize = function(self, fsize)
+            lib.MagickDrawSetFontSize(self.wand, fsize)
+        end,
+
+        get_gravity = function(self)
+            return lib.MagickDrawGetGravity(self.wand)
+        end,
+
+        set_gravity = function(self, typestr)
+            local g = gravity_type[typestr]
+            if not (g) then
+                error("invalid gravity type")
+            end
+            lib.MagickDrawSetGravity(self.wand, g)
+        end,
+
+        set_text_antialias = function(self, antialias)
+            lib.MagickDrawSetTextAntialias(self.wand, antialias)
+        end,
+
+        get_text_antialias = function(self)
+            return lib.MagickDrawGetTextAntialias(self.wand)
+        end,
+
+        set_stroke_antialias = function(self, antialias)
+            lib.MagickDrawSetStrokeAntialias(self.wand, antialias)
+        end,
+
+        get_stroke_antialias = function(self)
+            return lib.MagickDrawGetStrokeAntialias(self.wand)
+        end,
+
+        annotate = function(self, x, y, text)
+            return lib.MagickDrawAnnotation(self.wand, x, y, text)
+        end,
+
+        destroy = function(self)
+            if self.wand then
+                lib.MagickDestroyDrawingWand(self.wand)
+            end
+            self.wand = nil
+        end,
+
+    }
+    _base_0.__index = _base_0
+    local _class_0 = setmetatable({
+        __init = function(self)
+            self.wand = lib.MagickNewDrawingWand()
+            if not (self.wand) then
+                error("new drawing wand")
+            end
+        end,
+        __base = _base_0,
+        __name = "Draw"
+    }, {
+        __index = _base_0,
+        __call = function(cls, ...)
+            local _self_0 = setmetatable({}, _base_0)
+            cls.__init(_self_0, ...)
+            return _self_0
+        end
+    })
+    _base_0.__class = _class_0
+    Draw = _class_0
+end
+
+
 local Image
 do
-  local _base_0 = {
-      --width
-      get_width = function(self)
-          return lib.MagickGetImageWidth(self.wand)
-      end,
+    local _base_0 = {
+        --width
+        get_width = function(self)
+            return lib.MagickGetImageWidth(self.wand)
+        end,
 
-      --height
-      get_height = function(self)
-          return lib.MagickGetImageHeight(self.wand)
-      end,
+        --height
+        get_height = function(self)
+            return lib.MagickGetImageHeight(self.wand)
+        end,
 
-      --format
-      get_format = function(self)
-          return ffi.string(lib.MagickGetImageFormat(self.wand)):lower()
-      end,
-      set_format = function(self, format)
-          return handle_result(self, lib.MagickSetImageFormat(self.wand, format))
-      end,
+        --format
+        get_format = function(self)
+            return ffi.string(lib.MagickGetImageFormat(self.wand)):lower()
+        end,
+        set_format = function(self, format)
+            return handle_result(self, lib.MagickSetImageFormat(self.wand, format))
+        end,
 
-      --quality
-      set_quality = function(self, quality)
-          return handle_result(self, lib.MagickSetCompressionQuality(self.wand, quality))
-      end,
-      
-      --gravity
-      get_gravity = function(self)
-          return self.gravity
-      end,
+        --quality
+        set_quality = function(self, quality)
+            return handle_result(self, lib.MagickSetCompressionQuality(self.wand, quality))
+        end,
 
-      set_gravity = function(self, typestr)
-          local g = gravity_type[typestr]
-          if not (g) then
-              error("invalid gravity type")
-          end
-          self.gravity = typestr
-          return 0
-      end,
+        --gravity
+        get_gravity = function(self)
+            return self.gravity
+        end,
 
-      --compute position by gravity
-      _keep_aspect = function(self, geometry)
-          local g = get_image_position(self:get_width(), self:get_height(), geometry, self.gravity)
-          return g.w, g.h, g.x, g.y
-      end,
+        set_gravity = function(self, typestr)
+            local g = gravity_type[typestr]
+            if not (g) then
+                error("invalid gravity type")
+            end
+            self.gravity = typestr
+            return 0
+        end,
 
-      --clone
-      clone = function(self)
-          local wand = lib.NewMagickWand()
-          lib.MagickAddImage(wand, self.wand)
-          return Image(wand, self.path)
-      end,
+        --compute position by gravity
+        _keep_aspect = function(self, geometry)
+            if (geometry) then
+                local g = get_image_position(self:get_width(), self:get_height(), geometry, self.gravity)
+                return g.w, g.h, g.x, g.y
+            end
+            return self:get_width(), self:get_height(), 0, 0
+        end,
 
-      --resize
-      resize = function(self, geometry, f, blur)
-          if f == nil then
-              f = "Cubic"
-          end
-          if blur == nil then
-              blur = 1.0
-          end
-          if not (can_resize) then
-              error("Failed to load filter list, can't resize")
-          end
-          local w, h = self:_keep_aspect(geometry)
-          return handle_result(self, lib.MagickResizeImage(self.wand, w, h, filter(f), blur))
-      end,
+        --clone
+        clone = function(self)
+            local wand = lib.NewMagickWand()
+            lib.MagickAddImage(wand, self.wand)
+            return Image(wand, self.path)
+        end,
 
-      adaptive_resize = function(self, geometry)
-          local w, h = self:_keep_aspect(geometry)
-          return handle_result(self, lib.MagickAdaptiveResizeImage(self.wand, w, h))
-      end,
+        --resize
+        resize = function(self, geometry, f, blur)
+            if f == nil then
+                f = "Cubic"
+            end
+            if blur == nil then
+                blur = 1.0
+            end
+            if not (can_resize) then
+                error("Failed to load filter list, can't resize")
+            end
+            local w, h = self:_keep_aspect(geometry)
+            return handle_result(self, lib.MagickResizeImage(self.wand, w, h, filter(f), blur))
+        end,
 
-      scale = function(self, geometry)
-          local w, h = self:_keep_aspect(geometry)
-          return handle_result(self, lib.MagickScaleImage(self.wand, w, h))
-      end,
+        adaptive_resize = function(self, geometry)
+            local w, h = self:_keep_aspect(geometry)
+            return handle_result(self, lib.MagickAdaptiveResizeImage(self.wand, w, h))
+        end,
 
-      --crop
-      crop = function(self, geometry)
-          local w, h, x, y = self:_keep_aspect(geometry)
-          return handle_result(self, lib.MagickCropImage(self.wand, w, h, x, y))
-      end,
+        scale = function(self, geometry)
+            local w, h = self:_keep_aspect(geometry)
+            return handle_result(self, lib.MagickScaleImage(self.wand, w, h))
+        end,
 
-      blur = function(self, sigma, radius)
-          if radius == nil then
-              radius = 0
-          end
-          return handle_result(self, lib.MagickBlurImage(self.wand, radius, sigma))
-      end,
+        --crop
+        crop = function(self, geometry)
+            local w, h, x, y = self:_keep_aspect(geometry)
+            return handle_result(self, lib.MagickCropImage(self.wand, w, h, x, y))
+        end,
 
-      sharpen = function(self, sigma, radius)
-          if radius == nil then
-              radius = 0
-          end
-          return handle_result(self, lib.MagickSharpenImage(self.wand, radius, sigma))
-      end,
+        blur = function(self, sigma, radius)
+            if radius == nil then
+                radius = 0
+            end
+            return handle_result(self, lib.MagickBlurImage(self.wand, radius, sigma))
+        end,
 
-      composite = function(self, blob, geometry, opstr)
-          if opstr == nil then
-              opstr = "OverCompositeOp"
-          end
-          local op = composite_op[opstr]
-          if not (op) then
-              error("invalid operator type")
-          end
-          local _, _, x, y = self:_keep_aspect(geometry)
-          return handle_result(self, lib.MagickCompositeImage(self.wand, blob, op, x, y))
-      end,
+        sharpen = function(self, sigma, radius)
+            if radius == nil then
+                radius = 0
+            end
+            return handle_result(self, lib.MagickSharpenImage(self.wand, radius, sigma))
+        end,
 
-      --get blob
-      get_blob = function(self)
-          local len = ffi.new("size_t[1]", 0)
-          local blob = lib.MagickWriteImageBlob(self.wand, len)
-          do
-              local _with_0 = ffi.string(blob, len[0])
-              lib.MagickRelinquishMemory(blob)
-              return _with_0
-          end
-      end,
+        --composite
+        composite = function(self, blob, geometry, opstr)
+            if opstr == nil then
+                opstr = "OverCompositeOp"
+            end
+            local op = composite_op[opstr]
+            if not (op) then
+                error("invalid operator type")
+            end
+            local _, _, x, y = self:_keep_aspect(geometry)
+            return handle_result(self, lib.MagickCompositeImage(self.wand, blob, op, x, y))
+        end,
 
-      write = function(self, fname)
-          return handle_result(self, lib.MagickWriteImage(self.wand, fname))
-      end,
+        --get blob
+        get_blob = function(self)
+            local len = ffi.new("size_t[1]", 0)
+            local blob = lib.MagickWriteImageBlob(self.wand, len)
+            do
+                local _with_0 = ffi.string(blob, len[0])
+                lib.MagickRelinquishMemory(blob)
+                return _with_0
+            end
+        end,
 
-      destroy = function(self)
-          if self.wand then
-              lib.DestroyMagickWand(self.wand)
-          end
-          self.wand = nil
-      end,
+        -- write
+        write = function(self, fname)
+            return handle_result(self, lib.MagickWriteImage(self.wand, fname))
+        end,
 
-      __tostring = function(self)
-          return "Image<" .. tostring(self.path) .. ", " .. tostring(self.wand) .. ">"
-      end
-  }
-  _base_0.__index = _base_0
-  local _class_0 = setmetatable({
-      __init = function(self, wand, path)
-          self.wand, self.path , self.gravity = wand, path, nil
-      end,
-      __base = _base_0,
-      __name = "Image"
-  }, {
-      __index = _base_0,
-      __call = function(cls, ...)
-          local _self_0 = setmetatable({}, _base_0)
-          cls.__init(_self_0, ...)
-          return _self_0
-      end
-  })
-  _base_0.__class = _class_0
-  Image = _class_0
+        -- query font
+        query_font_metrics = function(self, draw, text)
+            local r = lib.MagickQueryFontMetrics(self.wand, draw.wand, text)
+            local t = { 
+                width = r[0], height = r[1], ascender = r[2],
+                descender = r[3], text = r[4], text_height = r[5], max_horizontal = r[6]
+            }
+            util.dumptable(t)
+            return t
+        end,
+
+        --draw image
+        draw_image = function(self, draw)
+            return handle_result(self, lib.MagickDrawImage(self.wand, draw.wand))
+        end,
+
+        --add image
+        add_image = function(self, img)
+            return handle_result(self, lib.MagickAddImage(self.wand, img.wand))
+        end,
+
+        --load image
+        reset_iterator = function(self)
+            lib.MagickResetIterator(self.wand)
+        end,
+
+
+        append = function(self, stack)
+            if not stack then
+                stack = false
+            end
+
+            local w = lib.MagickAppendImages(self.wand, stack)
+            if w then
+                return Image(w, "<Append>")
+            end
+
+            return nil
+        end,
+
+        destroy = function(self)
+            if self.wand then
+                lib.DestroyMagickWand(self.wand)
+            end
+            self.wand = nil
+        end,
+
+        __tostring = function(self)
+            return "Image<" .. tostring(self.path) .. ", " .. tostring(self.wand) .. ">"
+        end
+    }
+    _base_0.__index = _base_0
+    local _class_0 = setmetatable({
+        __init = function(self, wand, path)
+            self.wand, self.path, self.gravity = wand, path, nil
+        end,
+        __base = _base_0,
+        __name = "Image"
+    }, {
+        __index = _base_0,
+        __call = function(cls, ...)
+            local _self_0 = setmetatable({}, _base_0)
+            cls.__init(_self_0, ...)
+            return _self_0
+        end
+    })
+    _base_0.__class = _class_0
+    Image = _class_0
 end
 
 --load image
@@ -562,6 +727,50 @@ load_image_from_blob = function(blob)
         return nil, msg, code
     end
     return Image(wand, "<from_blob>")
+end
+
+local join_str
+join_str = function(str1, str2)
+    if (str1 and str2) then
+        return str1 .. str2
+    end
+
+    if (str1) then
+        return str1
+    end
+
+    if (str2) then
+        return str2
+    end
+
+    return nil
+end
+
+--load new image
+local new_image
+new_image = function(cols, rows, color)
+    local wand = lib.NewMagickWand()
+    local path
+    
+    if not color then
+        color = "None"
+    end
+    
+    path = "xc:" .. color
+
+    if 0 == lib.MagickReadImage(wand, path) then
+        local code, msg = get_exception(wand)
+        lib.DestroyMagickWand(wand)
+        return nil, join_str("read image error.", msg), code
+    end
+
+    if 0 == lib.MagickScaleImage(wand, cols, rows) then
+        local code, msg = get_exception(wand)
+        lib.DestroyMagickWand(wand)
+        return nil, join_str("scale image error.", msg), code
+    end
+
+    return Image(wand, "<new_image>")
 end
 
 --thumb
@@ -617,6 +826,8 @@ end
 return {
     load_image = load_image,
     load_image_from_blob = load_image_from_blob,
+    new_image = new_image,
     thumb = thumb,
-    Image = Image
+    Image = Image,
+    Draw = Draw
 }
