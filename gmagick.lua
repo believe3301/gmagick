@@ -1,4 +1,4 @@
-local util = require("util")
+local string = require("string")
 local ffi = require("ffi")
 ffi.cdef([[  typedef void MagickWand;
 
@@ -18,11 +18,29 @@ ffi.cdef([[  typedef void MagickWand;
     void* MagickRelinquishMemory(void*);
     const char* MagickGetException(const MagickWand*, ExceptionType*);
 
-    //append
+    MagickWand *MagickGetImage(MagickWand *wand);
+
+    MagickBooleanType MagickSetSize( MagickWand *wand, const unsigned long columns, const unsigned long rows );
+
+
+    //filename
+    MagickBooleanType MagickSetImageFilename( MagickWand *wand, const char *filename );
+    const char MagickGetImageFilename( MagickWand *wand );
+
+    //image list
+    unsigned long MagickGetNumberImages( MagickWand *wand );
     MagickBooleanType MagickAddImage(MagickWand *wand, const MagickWand *add_wand);
+    MagickBooleanType MagickRemoveImage( MagickWand *wand );
+    MagickBooleanType MagickSetImageIndex( MagickWand *wand, const long index );
+    MagickBooleanType MagickNextImage( MagickWand *wand );
+    MagickBooleanType MagickPreviousImage( MagickWand *wand );
+    MagickBooleanType MagickHasNextImage( MagickWand *wand );
+    MagickBooleanType MagickHasPreviousImage( MagickWand *wand );
+    MagickBooleanType MagickSetImage(MagickWand *wand, const MagickWand *set_wand);
+
+    //append
     MagickWand *MagickAppendImages(MagickWand *wand, const unsigned int stack);
     void MagickResetIterator(MagickWand *wand);
-    MagickBooleanType MagickNextImage(MagickWand *wand);
 
     //read
     MagickBooleanType MagickReadImage(MagickWand*, const char*);
@@ -69,6 +87,7 @@ ffi.cdef([[  typedef void MagickWand;
     //geometry
     int GetMagickGeometry(const char *geometry,long *x,long *y,unsigned long *width, unsigned long *height);
     int GetGeometry(const char *geometry,long *x,long *y,unsigned long *width, unsigned long *height);
+    MagickBooleanType IsGeometry(const char *geometry);
 
     //draw
     DrawingWand *MagickNewDrawingWand( void );
@@ -229,7 +248,7 @@ local lib = try_to_load("GraphicsMagickWand", function()
 end)
 
 --Initialize lib
-lib.InitializeMagick(nil);
+--lib.InitializeMagick("luabinding");
 
 local can_resize
 if get_filters() then
@@ -367,19 +386,46 @@ parse_size_str = function(str, src_w, src_h)
     }
 end
 
+local is_geometry
+is_geometry = function(geometry)
+    local r = lib.IsGeometry(geometry)
+    return r == 1 
+end
+
+local get_geometry
+get_geometry = function(geometry)
+    local x = ffi.new("long[1]", 0)
+    local y = ffi.new("long[1]", 0)
+    local w = ffi.new("unsigned long[1]", 0)
+    local h = ffi.new("unsigned long[1]", 0)
+
+    local f = lib.GetGeometry(geometry, x, y, w, h);
+    return f, {x = tonumber(x[0]), y = tonumber(y[0]), w = tonumber(w[0]), h = tonumber(h[0])}
+end
+
 local get_image_position
-local get_image_position = function(img_w, img_h, geometry, gravity)
+local get_image_position = function(img_w, img_h, geometry, gravity, size_to_fit)
     local x = ffi.new("long[1]", 0)
     local y = ffi.new("long[1]", 0)
     local w = ffi.new("unsigned long[1]", img_w)
     local h = ffi.new("unsigned long[1]", img_h)
+    local geometry = geometry
+    local gravity = gravity
+
+    if (not geometry) then
+        return nil
+    end
+
+    if (not size_to_fit) then
+        geometry = geometry .. "!"
+    end
 
     local r = lib.GetMagickGeometry(geometry, x, y, w, h)
 
-    local r_x = x[0]
-    local r_y = y[0]
-    local r_w = w[0] 
-    local r_h = h[0]
+    local r_x = tonumber(x[0])
+    local r_y = tonumber(y[0])
+    local r_w = tonumber(w[0])
+    local r_h = tonumber(h[0])
 
     if(gravity == nil or gravity == "NorthWestGravity") then
 
@@ -401,18 +447,18 @@ local get_image_position = function(img_w, img_h, geometry, gravity)
         r_y = r_y + (img_h/2-r_h/2)
 
     elseif (gravity == "SouthWestGravity") then
-      r_y = (img_h-r_h-r_y)
+        r_y = (img_h-r_h-r_y)
 
     elseif (gravity == "SouthGravity") then
-      r_x = r_x + (img_w/2-r_w/2);
-      r_y = (img_h-r_h-r_y)
+        r_x = r_x + (img_w/2-r_w/2);
+        r_y = (img_h-r_h-r_y)
 
     elseif (gravity == "SouthEastGravity") then
-      r_x= (img_w-r_w-r_x)
-      r_y= (img_h-r_h-r_y)
+        r_x= (img_w-r_w-r_x)
+        r_y= (img_h-r_h-r_y)
     end
 
-  return {w = r_w, h = r_h, x = r_x, y = r_y}
+  return r_w, r_h, r_x, r_y
 end
 
 local Draw
@@ -546,18 +592,17 @@ do
         end,
 
         --compute position by gravity
-        _keep_aspect = function(self, geometry)
-            if (geometry) then
-                local g = get_image_position(self:get_width(), self:get_height(), geometry, self.gravity)
-                return g.w, g.h, g.x, g.y
-            end
-            return self:get_width(), self:get_height(), 0, 0
+        _keep_aspect = function(self, geometry, size_to_fit)
+            return get_image_position(self:get_width(), self:get_height(), geometry, self.gravity, size_to_fit)
         end,
 
         --clone
         clone = function(self)
+            --[[
             local wand = lib.NewMagickWand()
             lib.MagickAddImage(wand, self.wand)
+            ]]
+            local wand = lib.MagickGetImage(self.wand)
             return Image(wand, self.path)
         end,
 
@@ -572,7 +617,10 @@ do
             if not (can_resize) then
                 error("Failed to load filter list, can't resize")
             end
-            local w, h = self:_keep_aspect(geometry)
+            local w, h = self:_keep_aspect(geometry, true)
+            if w == 0 or h == 0 or (w == self:get_width() and h == self:get_height()) then
+                return true
+            end
             return handle_result(self, lib.MagickResizeImage(self.wand, w, h, filter(f), blur))
         end,
 
@@ -607,7 +655,10 @@ do
         end,
 
         --composite
-        composite = function(self, blob, geometry, opstr)
+        composite = function(self, img, geometry, opstr)
+            local _, g = get_geometry(geometry)
+            local c_geometry = string.format("%dx%d+%d+%d", img:get_width(), img:get_height(), g["x"], g["y"])
+
             if opstr == nil then
                 opstr = "OverCompositeOp"
             end
@@ -615,8 +666,9 @@ do
             if not (op) then
                 error("invalid operator type")
             end
-            local _, _, x, y = self:_keep_aspect(geometry)
-            return handle_result(self, lib.MagickCompositeImage(self.wand, blob, op, x, y))
+
+            local _, _, x, y = self:_keep_aspect(c_geometry)
+            return handle_result(self, lib.MagickCompositeImage(self.wand, img.wand, op, x, y))
         end,
 
         --get blob
@@ -642,7 +694,6 @@ do
                 width = r[0], height = r[1], ascender = r[2],
                 descender = r[3], text = r[4], text_height = r[5], max_horizontal = r[6]
             }
-            util.dumptable(t)
             return t
         end,
 
@@ -651,17 +702,50 @@ do
             return handle_result(self, lib.MagickDrawImage(self.wand, draw.wand))
         end,
 
+        remove_image = function(self)
+            return handle_result(self, lib.MagickRemoveImage(self.wand))
+        end, 
+
+        set_image_index = function(self, index)
+            return handle_result(self, lib.MagickSetImageIndex(self.wand, index))
+        end,
+
+        next_image = function(self)
+            return handle_result(self, lib.MagickNextImage(self.wand))
+        end,
+
+        prev_image = function(self)
+            return handle_result(self, lib.MagickPreviousImage(self.wand))
+        end,
+
+        set_image = function(self, img)
+            return handle_result(self, lib.MagickSetImage(self.wand, img.wand))
+        end,
+
+        get_image_num = function(self)
+            return lib.MagickGetNumberImages(self.wand)
+        end,
+
         --add image
         add_image = function(self, img)
             return handle_result(self, lib.MagickAddImage(self.wand, img.wand))
         end,
 
-        --load image
+        --has next
+        has_next = function(self)
+            return lib.MagickHasNextImage(self.wand)
+        end,
+
+        --has prev
+        has_prev = function(self)
+            return lib.MagickHasPreviousImage(self.wand)
+        end,
+
         reset_iterator = function(self)
             lib.MagickResetIterator(self.wand)
         end,
 
-
+        --append
         append = function(self, stack)
             if not stack then
                 stack = false
@@ -758,16 +842,16 @@ new_image = function(cols, rows, color)
     
     path = "xc:" .. color
 
+    if 0 == lib.MagickSetSize(wand, cols, rows) then
+        local code, msg = get_exception(wand)
+        lib.DestroyMagickWand(wand)
+        return nil, join_str("set size error.", msg), code
+    end
+
     if 0 == lib.MagickReadImage(wand, path) then
         local code, msg = get_exception(wand)
         lib.DestroyMagickWand(wand)
         return nil, join_str("read image error.", msg), code
-    end
-
-    if 0 == lib.MagickScaleImage(wand, cols, rows) then
-        local code, msg = get_exception(wand)
-        lib.DestroyMagickWand(wand)
-        return nil, join_str("scale image error.", msg), code
     end
 
     return Image(wand, "<new_image>")
@@ -827,6 +911,8 @@ return {
     load_image = load_image,
     load_image_from_blob = load_image_from_blob,
     new_image = new_image,
+    is_geometry = is_geometry,
+    get_geometry = get_geometry,
     thumb = thumb,
     Image = Image,
     Draw = Draw
