@@ -592,8 +592,8 @@ do
         end,
 
         --compute position by gravity
-        _keep_aspect = function(self, geometry, size_to_fit)
-            return get_image_position(self:get_width(), self:get_height(), geometry, self.gravity, size_to_fit)
+        _keep_aspect = function(self, geometry, size_to_fit, gravity)
+            return get_image_position(self:get_width(), self:get_height(), geometry, gravity, size_to_fit)
         end,
 
         --clone
@@ -667,7 +667,7 @@ do
                 error("invalid operator type")
             end
 
-            local _, _, x, y = self:_keep_aspect(c_geometry)
+            local _, _, x, y = self:_keep_aspect(c_geometry, false, img:get_gravity())
             return handle_result(self, lib.MagickCompositeImage(self.wand, img.wand, op, x, y))
         end,
 
