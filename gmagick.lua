@@ -22,10 +22,13 @@ ffi.cdef([[  typedef void MagickWand;
 
     MagickBooleanType MagickSetSize( MagickWand *wand, const unsigned long columns, const unsigned long rows );
 
-
     //filename
-    MagickBooleanType MagickSetImageFilename( MagickWand *wand, const char *filename );
-    const char MagickGetImageFilename( MagickWand *wand );
+    MagickBooleanType MagickSetImageFilename( MagickWand *wand, const char *filename);
+    const char* MagickGetImageFilename(MagickWand *wand );
+
+    MagickBooleanType MagickSetFilename(MagickWand *wand, const char *filename);
+    const char* MagickGetFilename(MagickWand *wand);
+
 
     //image list
     unsigned long MagickGetNumberImages( MagickWand *wand );
@@ -329,8 +332,8 @@ get_exception = function(wand)
   return etype[0], msg
 end
 local handle_result
-handle_result = function(img_or_wand, status)
-  local wand = img_or_wand.wand or img_or_wand
+handle_result = function(wand, status)
+  local wand = wand
   if status == 0 then
     local code, msg = get_exception(wand)
     return nil, msg, code
@@ -461,6 +464,24 @@ local get_image_position = function(img_w, img_h, geometry, gravity, size_to_fit
   return r_w, r_h, r_x, r_y
 end
 
+local join_str
+join_str = function(str1, str2)
+    if (str1 and str2) then
+        return str1 .. str2
+    end
+
+    if (str1) then
+        return str1
+    end
+
+    if (str2) then
+        return str2
+    end
+
+    return nil
+end
+
+
 local Draw
 do
     local _base_0 = {
@@ -550,31 +571,48 @@ do
     Draw = _class_0
 end
 
-
 local Image
 do
     local _base_0 = {
         --width
         get_width = function(self)
-            return lib.MagickGetImageWidth(self.wand)
+            return tonumber(lib.MagickGetImageWidth(self.wand))
         end,
 
         --height
         get_height = function(self)
-            return lib.MagickGetImageHeight(self.wand)
+            return tonumber(lib.MagickGetImageHeight(self.wand))
         end,
 
         --format
         get_format = function(self)
             return ffi.string(lib.MagickGetImageFormat(self.wand)):lower()
         end,
+
         set_format = function(self, format)
-            return handle_result(self, lib.MagickSetImageFormat(self.wand, format))
+            return handle_result(self.wand, lib.MagickSetImageFormat(self.wand, format))
+        end,
+
+        --filename
+        get_filename = function(self)
+            return ffi.string(lib.MagickGetFilename(self.wand))
+        end,
+
+        set_filename = function(self, filename)
+            return handle_result(self.wand, lib.MagickSetFilename(self.wand, filename))
+        end,
+
+        get_image_filename = function(self)
+            return ffi.string(lib.MagickGetImageFilename(self.wand))
+        end,
+
+        set_image_filename = function(self, filename)
+            return handle_result(self.wand, lib.MagickSetImageFilename(self.wand, filename))
         end,
 
         --quality
         set_quality = function(self, quality)
-            return handle_result(self, lib.MagickSetCompressionQuality(self.wand, quality))
+            return handle_result(self.wand, lib.MagickSetCompressionQuality(self.wand, quality))
         end,
 
         --gravity
@@ -619,39 +657,35 @@ do
             end
             local w, h = self:_keep_aspect(geometry, true)
             if w == 0 or h == 0 or (w == self:get_width() and h == self:get_height()) then
+                perror("==========r")
                 return true
             end
-            return handle_result(self, lib.MagickResizeImage(self.wand, w, h, filter(f), blur))
-        end,
-
-        adaptive_resize = function(self, geometry)
-            local w, h = self:_keep_aspect(geometry)
-            return handle_result(self, lib.MagickAdaptiveResizeImage(self.wand, w, h))
+            return handle_result(self.wand, lib.MagickResizeImage(self.wand, w, h, filter(f), blur))
         end,
 
         scale = function(self, geometry)
             local w, h = self:_keep_aspect(geometry)
-            return handle_result(self, lib.MagickScaleImage(self.wand, w, h))
+            return handle_result(self.wand, lib.MagickScaleImage(self.wand, w, h))
         end,
 
         --crop
         crop = function(self, geometry)
             local w, h, x, y = self:_keep_aspect(geometry)
-            return handle_result(self, lib.MagickCropImage(self.wand, w, h, x, y))
+            return handle_result(self.wand, lib.MagickCropImage(self.wand, w, h, x, y))
         end,
 
         blur = function(self, sigma, radius)
             if radius == nil then
                 radius = 0
             end
-            return handle_result(self, lib.MagickBlurImage(self.wand, radius, sigma))
+            return handle_result(self.wand, lib.MagickBlurImage(self.wand, radius, sigma))
         end,
 
         sharpen = function(self, sigma, radius)
             if radius == nil then
                 radius = 0
             end
-            return handle_result(self, lib.MagickSharpenImage(self.wand, radius, sigma))
+            return handle_result(self.wand, lib.MagickSharpenImage(self.wand, radius, sigma))
         end,
 
         --composite
@@ -668,23 +702,28 @@ do
             end
 
             local _, _, x, y = self:_keep_aspect(c_geometry, false, img:get_gravity())
-            return handle_result(self, lib.MagickCompositeImage(self.wand, img.wand, op, x, y))
+            return handle_result(self.wand, lib.MagickCompositeImage(self.wand, img.wand, op, x, y))
         end,
 
         --get blob
         get_blob = function(self)
+            self:reset_iterator()
             local len = ffi.new("size_t[1]", 0)
             local blob = lib.MagickWriteImageBlob(self.wand, len)
-            do
+
+            if tonumber(ffi.cast("intptr_t", blob)) ~= 0 then
                 local _with_0 = ffi.string(blob, len[0])
                 lib.MagickRelinquishMemory(blob)
                 return _with_0
             end
+
+            local code, msg = get_exception(self.wand)
+            return nil, msg, code
         end,
 
         -- write
         write = function(self, fname)
-            return handle_result(self, lib.MagickWriteImage(self.wand, fname))
+            return handle_result(self.wand, lib.MagickWriteImage(self.wand, fname))
         end,
 
         -- query font
@@ -699,36 +738,69 @@ do
 
         --draw image
         draw_image = function(self, draw)
-            return handle_result(self, lib.MagickDrawImage(self.wand, draw.wand))
+            return handle_result(self.wand, lib.MagickDrawImage(self.wand, draw.wand))
         end,
 
         remove_image = function(self)
-            return handle_result(self, lib.MagickRemoveImage(self.wand))
+            return handle_result(self.wand, lib.MagickRemoveImage(self.wand))
         end, 
 
         set_image_index = function(self, index)
-            return handle_result(self, lib.MagickSetImageIndex(self.wand, index))
+            return handle_result(self.wand, lib.MagickSetImageIndex(self.wand, index))
         end,
 
         next_image = function(self)
-            return handle_result(self, lib.MagickNextImage(self.wand))
+            return handle_result(self.wand, lib.MagickNextImage(self.wand))
         end,
 
         prev_image = function(self)
-            return handle_result(self, lib.MagickPreviousImage(self.wand))
+            return handle_result(self.wand, lib.MagickPreviousImage(self.wand))
         end,
 
         set_image = function(self, img)
-            return handle_result(self, lib.MagickSetImage(self.wand, img.wand))
+            return handle_result(self.wand, lib.MagickSetImage(self.wand, img.wand))
         end,
 
         get_image_num = function(self)
-            return lib.MagickGetNumberImages(self.wand)
+            return tonumber(lib.MagickGetNumberImages(self.wand))
+        end,
+
+        -- read image
+        read_image = function(self, path)
+            return handle_result(self.wand, lib.MagickReadImage(self.wand, path))
+        end,
+
+        -- read blob image
+        read_image_blob = function(self, blob)
+            return handle_result(self.wand, lib.MagickReadImageBlob(self.wand, blob, #blob))
+        end,
+
+        -- new_image
+        new_image = function(self, cols, rows, color)
+            local wand = self.wand
+
+            if not color then
+                color = "None"
+            end
+
+            local path = "xc:" .. color
+            local r, code, msg = handle_result(wand, lib.MagickSetSize(wand, cols, rows))
+
+            if not r then
+                return nil, join_str("set size error.", msg), code
+            end
+
+            local r, code, msg = lib.MagickReadImage(wand, path)
+
+            if not r then
+                return nil, join_str("read image error.", msg), code
+            end
+            return true
         end,
 
         --add image
         add_image = function(self, img)
-            return handle_result(self, lib.MagickAddImage(self.wand, img.wand))
+            return handle_result(self.wand, lib.MagickAddImage(self.wand, img.wand))
         end,
 
         --has next
@@ -752,11 +824,30 @@ do
             end
 
             local w = lib.MagickAppendImages(self.wand, stack)
-            if w then
+
+            if tonumber(ffi.cast("intptr_t", w)) ~= 0 then
                 return Image(w, "<Append>")
             end
+            local code, msg = get_exception(self.wand)
 
-            return nil
+            return nil, code, msg
+        end,
+
+        --montage
+        montage = function(self, draw, tile_geometry, thumbnail_geometry, mode, frame)
+            local mode = mode
+            if not mode then
+                mode = lib.UnframeMode
+            end
+
+            local m = lib.MagickMontageImage(self.wand, draw.wand, tile_geometry, thumbnail_geometry, mode, frame)
+            if tonumber(ffi.cast("intptr_t", m)) ~= 0 then
+                return Image(m, "<Montage>")
+            end
+
+            local code, msg = get_exception(self.wand)
+
+            return nil, code, msg
         end,
 
         destroy = function(self)
@@ -813,23 +904,6 @@ load_image_from_blob = function(blob)
     return Image(wand, "<from_blob>")
 end
 
-local join_str
-join_str = function(str1, str2)
-    if (str1 and str2) then
-        return str1 .. str2
-    end
-
-    if (str1) then
-        return str1
-    end
-
-    if (str2) then
-        return str2
-    end
-
-    return nil
-end
-
 --load new image
 local new_image
 new_image = function(cols, rows, color)
@@ -857,63 +931,12 @@ new_image = function(cols, rows, color)
     return Image(wand, "<new_image>")
 end
 
---thumb
-local thumb
-thumb = function(img, size_str, output)
-    if type(img) == "string" then
-        img = assert(load_image(img))
-    end
-    local src_w, src_h = img:get_width(), img:get_height()
-    local opts = parse_size_str(size_str, src_w, src_h)
-    if opts.center_crop then
-        img:resize_and_crop(opts.w, opts.h)
-    elseif opts.crop_x then
-        img:crop(opts.w, opts.h, opts.crop_x, opts.crop_y)
-    else
-        img:resize(opts.w, opts.h)
-    end
-    local ret
-    if output then
-        ret = img:write(output)
-    else
-        ret = img:get_blob()
-    end
-    img:destroy()
-    return ret
-end
-
-if ... == "test" then
-    local w, h = 500, 300
-    local D
-    D = function(t)
-        return print(table.concat((function()
-            local _accum_0 = { }
-            local _len_0 = 1
-            for k, v in pairs(t) do
-                _accum_0[_len_0] = tostring(k) .. ": " .. tostring(v)
-                _len_0 = _len_0 + 1
-            end
-            return _accum_0
-        end)(), ", "))
-    end
-    D(parse_size_str("10x10", w, h))
-    D(parse_size_str("50%x50%", w, h))
-    D(parse_size_str("50%x50%!", w, h))
-    D(parse_size_str("x10", w, h))
-    D(parse_size_str("10x%", w, h))
-    D(parse_size_str("10x10%#", w, h))
-    D(parse_size_str("200x300", w, h))
-    D(parse_size_str("200x300!", w, h))
-    D(parse_size_str("200x300+10+10", w, h))
-end
-
 return {
     load_image = load_image,
     load_image_from_blob = load_image_from_blob,
     new_image = new_image,
     is_geometry = is_geometry,
     get_geometry = get_geometry,
-    thumb = thumb,
     Image = Image,
     Draw = Draw
 }
