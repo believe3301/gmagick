@@ -14,7 +14,7 @@ ffi.cdef([[  typedef void MagickWand;
     void InitializeMagick(const char *path);
   
     MagickWand* NewMagickWand();
-    MagickWand* DestroyMagickWand(MagickWand*);
+    MagickBooleanType DestroyMagickWand(MagickWand*);
     void* MagickRelinquishMemory(void*);
     const char* MagickGetException(const MagickWand*, ExceptionType*);
 
@@ -28,7 +28,6 @@ ffi.cdef([[  typedef void MagickWand;
 
     MagickBooleanType MagickSetFilename(MagickWand *wand, const char *filename);
     const char* MagickGetFilename(MagickWand *wand);
-
 
     //image list
     unsigned long MagickGetNumberImages( MagickWand *wand );
@@ -92,6 +91,12 @@ ffi.cdef([[  typedef void MagickWand;
     int GetGeometry(const char *geometry,long *x,long *y,unsigned long *width, unsigned long *height);
     MagickBooleanType IsGeometry(const char *geometry);
 
+    //Pixel
+    PixelWand *NewPixelWand(void);
+    void DestroyPixelWand(PixelWand *wand);
+    MagickBooleanType PixelSetColor(PixelWand *wand, const char *color);
+    char *PixelGetColorAsString(PixelWand *wand);
+
     //draw
     DrawingWand *MagickNewDrawingWand( void );
     void MagickDestroyDrawingWand( DrawingWand *drawing_wand );
@@ -99,6 +104,10 @@ ffi.cdef([[  typedef void MagickWand;
     //draw fill color
     void MagickDrawSetFillColor(DrawingWand *drawing_wand, const PixelWand *fill_wand);
     void MagickDrawGetFillColor(const DrawingWand *drawing_wand, PixelWand *fill_color);
+    void MagickDrawSetStrokeColor(DrawingWand *drawing_wand, const PixelWand *stroke_wand);
+    void MagickDrawGetStrokeColor(const DrawingWand *drawing_wand, PixelWand *stroke_color);
+    double MagickDrawGetStrokeWidth(const DrawingWand *drawing_wand);
+    void MagickDrawSetStrokeWidth(DrawingWand *drawing_wand, const double stroke_width);
 
     //draw font
     char *MagickDrawGetFont(const DrawingWand *drawing_wand);
@@ -122,9 +131,19 @@ ffi.cdef([[  typedef void MagickWand;
     unsigned int MagickDrawGetStrokeAntialias(const DrawingWand *drawing_wand);
     void MagickDrawSetStrokeAntialias(DrawingWand *drawing_wand, const unsigned int text_antialias);
 
-    //draw text
+    //draw
     void MagickDrawAnnotation(DrawingWand *drawing_wand, const double x, const double y,
       const unsigned char *text);
+
+    //draw rectangle
+    void MagickDrawRectangle(DrawingWand *drawing_wand, const double x1, const double y1,
+        const double x2, const double y2 );
+
+    void MagickDrawRoundRectangle( DrawingWand *drawing_wand, double x1, double y1, double x2, double y2,
+        double rx, double ry );
+
+    void MagickDrawCircle(DrawingWand *drawing_wand, const double ox, const double oy, const double px,
+        const double py );
 
     //draw image
     MagickBooleanType MagickDrawImage(MagickWand *wand, const DrawingWand *drawing_wand);
@@ -485,6 +504,56 @@ end
 local Draw
 do
     local _base_0 = {
+        set_fillcolor = function(self, color)
+            tmpwand = lib.NewPixelWand()
+            local r, msg, code= handle_result(tmpwand, lib.PixelSetColor(tmpwand, color))
+            if not r then
+                lib.DestroyPixelWand(tmpwand)
+                return r, msg, code
+            end
+            
+            lib.MagickDrawSetFillColor(self.wand, tmpwand)
+            lib.DestroyPixelWand(tmpwand)
+            return true
+        end, 
+
+        get_stroke_width = function(self)
+            return lib.MagickDrawGetStrokeWidth(self.wand)
+        end,
+
+        set_stroke_width = function(self, width)
+            lib.MagickDrawSetStrokeWidth(self.wand, width)
+        end,
+
+        get_stroke_color = function(self)
+            tmpwand = lib.NewPixelWand()
+            lib.MagickDrawGetStrokeColor(self.wand, tmpwand)
+            local color = lib.PixelGetColorAsString(tmpwand)
+            lib.DestroyPixelWand(tmpwand)
+            return ffi.string(color)
+        end,
+
+        set_stroke_color = function(self, color)
+            tmpwand = lib.NewPixelWand()
+            local r, msg, code= handle_result(tmpwand, lib.PixelSetColor(tmpwand, color))
+            if not r then
+                lib.DestroyPixelWand(tmpwand)
+                return r, msg, code
+            end
+            
+            lib.MagickDrawSetStrokeColor(self.wand, tmpwand)
+            lib.DestroyPixelWand(tmpwand)
+            return true
+        end,
+
+        draw_rectangle = function(self, x1, y1, x2, y2)
+            lib.MagickDrawRectangle(self.wand, x1, y1, x2, y2)
+        end,
+
+        draw_circle = function(self, ox, oy, px, py)
+            lib.MagickDrawCircle(self.wand, ox, oy, px, py)
+        end,
+
         get_font = function(self)
             return lib.MagickDrawSetFont(self.wand)
         end,
@@ -657,7 +726,6 @@ do
             end
             local w, h = self:_keep_aspect(geometry, true)
             if w == 0 or h == 0 or (w == self:get_width() and h == self:get_height()) then
-                perror("==========r")
                 return true
             end
             return handle_result(self.wand, lib.MagickResizeImage(self.wand, w, h, filter(f), blur))
