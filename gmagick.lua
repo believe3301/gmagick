@@ -347,9 +347,16 @@ end
 local get_exception
 get_exception = function(wand)
   local etype = ffi.new("ExceptionType[1]", 0)
-  local msg = ffi.string(lib.MagickGetException(wand, etype))
-  return etype[0], msg
+  local blob = lib.MagickGetException(wand, etype)
+  local msg = ""
+  
+  if tonumber(ffi.cast("intptr_t", blob)) ~= 0 then
+      msg  = ffi.string(blob)
+      lib.MagickRelinquishMemory(blob)
+  end
+  return tonumber(etype[0]), msg
 end
+
 local handle_result
 handle_result = function(wand, status)
   local wand = wand
