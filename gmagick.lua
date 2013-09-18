@@ -1,6 +1,11 @@
 local string = require("string")
 local ffi = require("ffi")
+local io = require "io"
 local error = error
+local tonumber = tonumber
+local ipairs, pairs, loadstring = ipairs, pairs, loadstring
+local getmetatable, setmetatable = getmetatable, setmetatable
+
 ffi.cdef([[  typedef void MagickWand;
 
     typedef void DrawingWand;
@@ -127,9 +132,9 @@ ffi.cdef([[  typedef void MagickWand;
     void MagickDrawSetGravity(DrawingWand *drawing_wand, const GravityType gravity);
 
     //draw antialias
-    unsigned int MagickDrawGetTextAntialias(const DrawingWand *drawing_wand);
+    MagickBooleanType MagickDrawGetTextAntialias(const DrawingWand *drawing_wand);
     void MagickDrawSetTextAntialias(DrawingWand *drawing_wand, const unsigned int text_antialias);
-    unsigned int MagickDrawGetStrokeAntialias(const DrawingWand *drawing_wand);
+    MagickBooleanType MagickDrawGetStrokeAntialias(const DrawingWand *drawing_wand);
     void MagickDrawSetStrokeAntialias(DrawingWand *drawing_wand, const unsigned int text_antialias);
 
     //draw
@@ -174,7 +179,6 @@ get_flags = function()
     return flags
 end
 
-local io = require "io"
 local function perror(obj)
 	return io.stderr:write(tostring(obj) .. "\n")
 end
@@ -345,17 +349,41 @@ filter = function(name)
     return lib[name .. "Filter"]
 end
 
+local is_ctype_null
+is_ctype_null = function(blob)
+    return tonumber(ffi.cast("intptr_t", blob)) == 0
+end
+
+local get_ctype_string
+get_ctype_string = function(blob, len)
+    local msg = ""
+    if not is_ctype_null(blob) then
+        if not len then
+            msg = ffi.string(blob)
+        else
+            msg = ffi.string(blob, len)
+        end
+        lib.MagickRelinquishMemory(ffi.cast("void *", blob))
+    end
+    return msg
+end
+
+local get_ctype_bool
+get_ctype_bool = function(ct)
+    local n = tonumber(ct)
+    if n == 0 then
+        return false
+    else
+        return true
+    end
+end
+
 local get_exception
 get_exception = function(wand)
   local etype = ffi.new("ExceptionType[1]", 0)
   local blob = lib.MagickGetException(wand, etype)
-  local msg = ""
-  
-  if tonumber(ffi.cast("intptr_t", blob)) ~= 0 then
-      msg  = ffi.string(blob)
-      lib.MagickRelinquishMemory(ffi.cast("void *", blob))
-      --error(msg)
-  end
+  local msg = get_ctype_string(blob)
+  error(msg)
   return tonumber(etype[0]), msg
 end
 
@@ -370,7 +398,6 @@ handle_result = function(wand, status)
   end
 end
 
-local tonumber = tonumber
 local parse_size_str
 parse_size_str = function(str, src_w, src_h)
     local w, h, rest = str:match("^(%d*%%?)x(%d*%%?)(.*)$")
@@ -538,7 +565,7 @@ do
             lib.MagickDrawGetStrokeColor(self.wand, tmpwand)
             local color = lib.PixelGetColorAsString(tmpwand)
             lib.DestroyPixelWand(tmpwand)
-            return ffi.string(color)
+            return get_ctype_string(color)
         end,
 
         set_stroke_color = function(self, color)
@@ -563,7 +590,7 @@ do
         end,
 
         get_font = function(self)
-            return lib.MagickDrawSetFont(self.wand)
+            return get_ctype_string(lib.MagickDrawGetFont(self.wand))
         end,
 
         set_font = function(self, font)
@@ -571,7 +598,7 @@ do
         end,
 
         get_fontfamily = function(self)
-            return lib.MagickDrawGetFontFamily(self.wand)
+            return get_ctype_string(lib.MagickDrawGetFontFamily(self.wand))
         end,
 
         set_fontfamily = function(self, family)
@@ -579,7 +606,7 @@ do
         end,
 
         get_fontsize = function(self)
-            return lib.MagickDrawGetFontSize(self.wand)
+            return tonumber(lib.MagickDrawGetFontSize(self.wand))
         end,
 
         set_fontsize = function(self, fsize)
@@ -587,7 +614,7 @@ do
         end,
 
         get_gravity = function(self)
-            return lib.MagickDrawGetGravity(self.wand)
+            return tonumber(lib.MagickDrawGetGravity(self.wand))
         end,
 
         set_gravity = function(self, typestr)
@@ -603,7 +630,7 @@ do
         end,
 
         get_text_antialias = function(self)
-            return lib.MagickDrawGetTextAntialias(self.wand)
+            return get_ctype_bool(lib.MagickDrawGetTextAntialias(self.wand))
         end,
 
         set_stroke_antialias = function(self, antialias)
@@ -611,7 +638,7 @@ do
         end,
 
         get_stroke_antialias = function(self)
-            return lib.MagickDrawGetStrokeAntialias(self.wand)
+            return get_ctype_bool(lib.MagickDrawGetStrokeAntialias(self.wand))
         end,
 
         annotate = function(self, x, y, text)
@@ -663,7 +690,7 @@ do
 
         --format
         get_format = function(self)
-            return ffi.string(lib.MagickGetImageFormat(self.wand)):lower()
+            return get_ctype_string(lib.MagickGetImageFormat(self.wand)):lower()
         end,
 
         set_format = function(self, format)
@@ -672,7 +699,7 @@ do
 
         --filename
         get_filename = function(self)
-            return ffi.string(lib.MagickGetFilename(self.wand))
+            return get_ctype_string(lib.MagickGetFilename(self.wand))
         end,
 
         set_filename = function(self, filename)
@@ -680,7 +707,7 @@ do
         end,
 
         get_image_filename = function(self)
-            return ffi.string(lib.MagickGetImageFilename(self.wand))
+            return get_ctype_string(lib.MagickGetImageFilename(self.wand))
         end,
 
         set_image_filename = function(self, filename)
@@ -787,10 +814,8 @@ do
             local len = ffi.new("size_t[1]", 0)
             local blob = lib.MagickWriteImageBlob(self.wand, len)
 
-            if tonumber(ffi.cast("intptr_t", blob)) ~= 0 then
-                local _with_0 = ffi.string(blob, len[0])
-                lib.MagickRelinquishMemory(blob)
-                return _with_0
+            if not is_ctype_null(blob) then
+                return get_ctype_string(blob, tonumber(len[0]))
             end
 
             local code, msg = get_exception(self.wand)
@@ -901,7 +926,7 @@ do
 
             local w = lib.MagickAppendImages(self.wand, stack)
 
-            if tonumber(ffi.cast("intptr_t", w)) ~= 0 then
+            if not is_ctype_null(w) then
                 return Image(w, "<Append>")
             end
             local code, msg = get_exception(self.wand)
@@ -917,7 +942,7 @@ do
             end
 
             local m = lib.MagickMontageImage(self.wand, draw.wand, tile_geometry, thumbnail_geometry, mode, frame)
-            if tonumber(ffi.cast("intptr_t", m)) ~= 0 then
+            if not is_ctype_null(m) then
                 return Image(m, "<Montage>")
             end
 
