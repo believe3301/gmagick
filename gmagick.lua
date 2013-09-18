@@ -1,5 +1,6 @@
 local string = require("string")
 local ffi = require("ffi")
+local error = error
 ffi.cdef([[  typedef void MagickWand;
 
     typedef void DrawingWand;
@@ -352,7 +353,8 @@ get_exception = function(wand)
   
   if tonumber(ffi.cast("intptr_t", blob)) ~= 0 then
       msg  = ffi.string(blob)
-      lib.MagickRelinquishMemory(blob)
+      lib.MagickRelinquishMemory(ffi.cast("void *", blob))
+      --error(msg)
   end
   return tonumber(etype[0]), msg
 end
@@ -506,7 +508,6 @@ join_str = function(str1, str2)
 
     return nil
 end
-
 
 local Draw
 do
@@ -905,7 +906,7 @@ do
             end
             local code, msg = get_exception(self.wand)
 
-            return nil, code, msg
+            return nil, msg, code
         end,
 
         --montage
@@ -922,7 +923,7 @@ do
 
             local code, msg = get_exception(self.wand)
 
-            return nil, code, msg
+            return nil, msg, code
         end,
 
         destroy = function(self)
@@ -979,6 +980,12 @@ load_image_from_blob = function(blob)
     return Image(wand, "<from_blob>")
 end
 
+local new_empty_image
+new_empty_image = function()
+    local wand = lib.NewMagickWand()
+    return Image(wand, "<new_empty_image>")
+end
+
 --load new image
 local new_image
 new_image = function(cols, rows, color)
@@ -1010,6 +1017,7 @@ return {
     load_image = load_image,
     load_image_from_blob = load_image_from_blob,
     new_image = new_image,
+    new_empty_image = new_empty_image,
     is_geometry = is_geometry,
     get_geometry = get_geometry,
     Image = Image,
